@@ -1,0 +1,357 @@
+<template>
+  <div>
+    <div>
+      <el-upload
+        ref="upload"
+        class="upload-demo"
+        drag
+        action="https://run.mocky.io/v3/9d059bf9-4660-45f2-925d-ce80ad6c4d15"
+        :limit="1"
+        :on-exceed="handleExceed"
+        :auto-upload="false"
+        :http-request="classification"
+      >
+        <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+        <div class="el-upload__text">
+          Drop file here or <em>click to upload</em>
+        </div>
+        <div class="el-upload__tip">
+          limit 1 .csv file, new file will cover the old file
+        </div>
+      </el-upload>
+    </div>
+    <div>
+      <el-button class="ml-3" type="primary" plain @click="submitDetail">
+        点击上传
+      </el-button>
+
+      <el-button class="ml-3" style="margin-left: 10px" plain @click="detail">
+        文件详情
+      </el-button>
+
+      <el-button
+        class="ml-3"
+        type="success"
+        plain
+        @click="dialogFormVisible = true"
+      >
+        立即检测
+      </el-button>
+
+      <el-button
+        class="ml-3"
+        style="margin-left: 10px"
+        plain
+        @click="dialogImageVisible = true"
+      >
+        可视化结果
+      </el-button>
+    </div>
+    <el-alert
+      style="background-color: #f5f7fb; margin: 5px 0; padding: 0"
+      title="上传后可查看文件详情"
+      type="info"
+      :closable="false"
+      show-icon
+    />
+    <div style="margin-top: 10px">
+      <el-table
+        :default-sort="{ prop: 'date', order: 'descending' }"
+        v-loading="loading"
+        :data="tableData"
+        height="400"
+        border
+        style="width: 100%"
+      >
+        <!-- <el-table-column v-if="form.anomalyNum !== ''"type="index" :index="indexMethod" /> -->
+        <el-table-column
+          v-for="(value, key) in header"
+          :key="key"
+          :prop="value"
+          :label="value"
+          sortable
+        />
+      </el-table>
+    </div>
+
+    <el-dialog
+      v-model="dialogFormVisible"
+      title="立即检测"
+      width="500"
+      text-align:
+      center
+    >
+      <el-form :model="form">
+        <el-form-item label="算法选择" text-align: left>
+          <el-select
+            v-model="form.algorithm"
+            placeholder="请选择聚类算法(默认Kmeans算法)"
+          >
+            <!-- <el-option label="Mean Shift" value="ms" /> -->
+            <el-option label="KMEANS(K-均值聚类)" value="kmeans" />
+            <el-option label="SFRC(软模糊粗糙分类器)" value="sfrc" />
+          </el-select>
+        </el-form-item>
+        <!-- <el-form-item label="特征筛选" text-align: left>
+          <el-switch v-model="form.isFeatures" />
+        </el-form-item> -->
+        <!-- <el-form-item label="异常阈值" text-align: left>
+          <el-input
+            v-model="form.anomalyNum"
+            placeholder="请输入异常阈值"
+            clearable
+          />
+        </el-form-item> -->
+        <!-- <el-form-item label="KFRAD核参数选择" text-align: left  v-if="form.algorithm === 'kmeans'">
+          <el-input
+            v-model="form.k"
+            placeholder="请输入需要聚类的类数"
+            clearable
+          />
+        </el-form-item> -->
+        <!-- <el-alert
+          style="background-color: #ffffff; margin: 5px 0; padding: 0"
+          title="KFRAD异常阈值(核参数)参考：心脏病(Heart)-0.35(0.04)；乳腺癌(Wbc)-0.35(0.48)；糖尿病(Diab)-0.6(0.02)；肝炎(Hepa)-0.27(0.06)；淋巴造影(Lym)-0.25(0.02)."
+          type="info"
+          :closable="false"
+          show-icon
+        /> -->
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="dialogFormVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitclassification"> 确认 </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="dialogTableVisible" title="文件详情" width="800">
+      <el-table :data="detailData">
+        <el-table-column property="name" label="文件名" width="350" />
+        <el-table-column property="sampleSize" label="样本个数" />
+        <el-table-column property="attributeNum" label="属性个数" />
+      </el-table>
+      <el-table
+        :data="detailTableData"
+        height="300"
+        stripe
+        border
+        style="width: 100%; margin-top: 20px"
+      >
+        <el-table-column
+          type="index"
+          :index="indexMethod"
+          :label="'id'"
+          width="60"
+        />
+        <el-table-column
+          v-for="(value, key) in detailHeader"
+          :key="key"
+          :prop="value"
+          :label="value"
+        />
+      </el-table>
+    </el-dialog>
+
+    <el-dialog v-model="dialogImageVisible" title="可视化结果" width="600">
+      <div class="demo-image">
+        <div>
+          <v-chart class="chart" :option="option" autoresize />
+        </div>
+      </div>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, Ref } from "vue";
+import axios, { AxiosResponse } from "axios";
+import { ElMessage } from "element-plus";
+import { ElUpload } from "element-plus";
+import { genFileId } from "element-plus";
+import { UploadFilled } from "@element-plus/icons-vue";
+import type { UploadInstance, UploadProps, UploadRawFile } from "element-plus";
+import { use } from 'echarts/core'
+import { PieChart } from 'echarts/charts'
+import {TitleComponent, TooltipComponent, LegendComponent} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import VChart from "vue-echarts";
+
+use([TitleComponent, TooltipComponent, LegendComponent, PieChart, CanvasRenderer
+])
+
+const loading = ref(false);
+const detailLock = ref(false);
+const classificationLock = ref(false);
+const indexMethod = (index: number) => {
+  return index + 1;
+};
+interface FormDataFile {
+  file: File;
+}
+
+interface DetailData {
+  name: string;
+  attributeNum: string;
+  sampleSize: string;
+}
+
+interface RowData {
+  [key: string]: string;
+}
+
+const dialogTableVisible = ref(false) as Ref<boolean>;
+const dialogFormVisible = ref(false) as Ref<boolean>;
+const dialogImageVisible = ref(false) as Ref<boolean>;
+const form = reactive({
+  algorithm: "请选择分类算法(默认SFRC算法)",
+  isFeatures: false,
+  k: 3,
+});
+const detailData: DetailData[] = reactive([
+  {
+    name: "",
+    sampleSize: "",
+    attributeNum: "",
+  },
+]);
+const matrixData: any[] = [];
+const tableData = ref<RowData[]>([]);
+const detailMatrixData: any[] = [];
+const detailTableData = ref<RowData[]>([]);
+const header = ref({}) as Ref<Record<string, string>>;
+const detailHeader = ref({}) as Ref<Record<string, string>>;
+// const tableRowClassName = ({ row }: { row: RowData; rowIndex: number }) => {
+//   if (Number(row.result) == 0) {
+//     return "error-row";
+//   }
+//   if (Number(row.result) == 1) {
+//     return "success-row";
+//   }
+//   if (Number(row.result) == 2) {
+//     return "warning-row";
+//   }
+// };
+const upload = ref<UploadInstance>();
+const option = ref({});
+
+const classification = (file: FormDataFile): any => {
+  if (classificationLock.value) {
+    let formData = new FormData();
+    const isclassification = true;
+    formData.append("file", file.file);
+    formData.append("is_classification", isclassification.toString()); // 添加额外的参数
+    formData.append("k", form.k.toString());
+    formData.append("algorithm", form.algorithm);
+    dialogFormVisible.value = false;
+    loading.value = true;
+    postclassification(formData).then((res: AxiosResponse<any>) => {
+      if (res.data.status == "success") {
+        console.log(res.data);
+        matrixData.splice(0);
+        matrixData.push(...JSON.parse(res.data.data));
+        tableData.value.splice(0);
+        matrixData.forEach((item: any) => {
+          let rowData: RowData = {};
+          Object.keys(res.data.header).forEach((index: string) => {
+            const key = res.data.header[index];
+            let value = item[index];
+            rowData[key] = value;
+          });
+          tableData.value.push(rowData);
+        });
+        loading.value = false;
+        header.value = res.data.header;
+        classificationLock.value = false;
+        option.value = res.data.option;
+      }
+    });
+  }
+  if (detailLock.value) {
+    let formData = new FormData();
+    formData.append("file", file.file);
+    postclassification(formData).then((res: AxiosResponse<any>) => {
+      if (res.data.status == "success") {
+        detailMatrixData.splice(0);
+        detailMatrixData.push(...JSON.parse(res.data.detail_data));
+        detailTableData.value.splice(0);
+        detailMatrixData.forEach((item: any) => {
+          let rowData: RowData = {};
+          Object.keys(res.data.detail_header).forEach((index: string) => {
+            const key = res.data.detail_header[index];
+            let value = item[index];
+            rowData[key] = value;
+          });
+          detailTableData.value.push(rowData);
+        });
+        ElMessage({
+          message: "文件已成功上传",
+          type: "success",
+        });
+        detailData[0].name = res.data.file;
+        detailData[0].attributeNum = res.data.col_count;
+        detailData[0].sampleSize = res.data.row_count;
+        detailHeader.value = res.data.detail_header;
+        tableData.value.splice(0);
+      }
+    });
+    detailLock.value = false;
+  }
+};
+
+const postclassification = (file: FormData) => {
+  return axios({
+    url: "/api/classification",
+    method: "post",
+    data: file,
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+};
+
+const detail = (file: File | null) => {
+  if (file) {
+    dialogTableVisible.value = true;
+  } else {
+    ElMessage.error("未上传文件");
+  }
+};
+
+const handleExceed: UploadProps["onExceed"] = (files) => {
+  upload.value!.clearFiles();
+  const file = files[0] as UploadRawFile;
+  file.uid = genFileId();
+  upload.value!.handleStart(file);
+};
+
+const submitDetail = () => {
+  upload.value!.submit();
+  detailLock.value = true;
+};
+
+const submitclassification = () => {
+  upload.value!.submit();
+  classificationLock.value = true;
+};
+
+</script>
+
+<style>
+.el-table .error-row {
+  --el-table-tr-bg-color: var(--el-color-error-light-9);
+}
+.el-table .warning-row {
+  --el-table-tr-bg-color: var(--el-color-warning-light-9);
+}
+.el-table .success-row {
+  --el-table-tr-bg-color: var(--el-color-success-light-9);
+}
+.div_scatter {
+  height: 50vh;
+  width: 50vw;
+}
+.chart {
+  height: 65vh;
+}
+</style>
